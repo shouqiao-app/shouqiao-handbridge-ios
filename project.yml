@@ -1,0 +1,32 @@
+name: ShouQiao
+
+options:
+  bundleIdPrefix: org.signbridge
+  deploymentTarget:
+    iOS: "16.0"
+  xcodeVersion: "15.0"
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+
+targets:
+  ShouQiao:
+    type: application
+    platform: iOS
+    sources:
+      - path: ShouQiao
+        excludes:
+          - Info.plist
+          - Resources
+    resources:
+      - path: ShouQiao/Resources
+    info:
+      path: ShouQiao/Info.plist
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: org.signbridge.app
+    scheme:
+      testTargets: []
