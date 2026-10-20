@@ -69,7 +69,7 @@ struct Hand {
     var openConfidence: Float {
         var sum: Float = 0
         for i in 0..<4 {
-            sum += clamp((fingerRatio(i) - 1.45) / 0.40)
+            sum += clamp((fingerRatio(i) - 1.35) / 0.35)
         }
         return sum / 4
     }
@@ -77,14 +77,14 @@ struct Hand {
     var fingerFoldConfidence: Float {
         var sum: Float = 0
         for i in 0..<4 {
-            sum += 1 - clamp((fingerRatio(i) - 1.15) / 0.45)
+            sum += 1 - clamp((fingerRatio(i) - 1.10) / 0.55)
         }
         return sum / 4
     }
 
     var fistConfidence: Float {
         // A clearly raised or lowered thumb is a different gesture.
-        if thumbUpConfidence >= 0.55 || thumbDownConfidence >= 0.55 {
+        if thumbUpConfidence >= 0.65 || thumbDownConfidence >= 0.65 {
             return 0
         }
         return fingerFoldConfidence
@@ -92,15 +92,15 @@ struct Hand {
 
     var thumbUpConfidence: Float {
         let ratio = distance(Self.thumbTip, Self.thumbMcp) / palmScale
-        let distanceScore = clamp((1.35 - ratio) / 0.45)
+        let distanceScore = clamp((1.45 - ratio) / 0.55)
         let lift = (y(Self.thumbMcp) - y(Self.thumbTip)) / palmScale
-        let liftScore = clamp((lift - 0.10) / 0.30)
+        let liftScore = clamp((lift - 0.05) / 0.25)
         return min(distanceScore, liftScore)
     }
 
     var thumbDownConfidence: Float {
         let ratio = distance(Self.thumbTip, Self.thumbMcp) / palmScale
-        let distanceScore = clamp((1.35 - ratio) / 0.45)
+        let distanceScore = clamp((1.45 - ratio) / 0.55)
         let drop = (y(Self.thumbTip) - y(Self.thumbMcp)) / palmScale
         let dropScore = clamp((drop - 0.10) / 0.30)
         return min(distanceScore, dropScore)
@@ -109,22 +109,22 @@ struct Hand {
     var isPlausible: Bool {
         for point in points {
             guard point.x.isFinite, point.y.isFinite,
-                  point.x >= -0.15, point.x <= 1.15,
-                  point.y >= -0.15, point.y <= 1.15 else {
+                  point.x >= -0.20, point.x <= 1.20,
+                  point.y >= -0.20, point.y <= 1.20 else {
                 return false
             }
         }
 
         let scale = palmScale
-        guard scale >= 0.05, scale <= 0.50 else { return false }
+        guard scale >= 0.045, scale <= 0.55 else { return false }
 
         let palmArea = abs(
             (x(Self.indexMcp) - x(Self.wrist)) * (y(Self.pinkyMcp) - y(Self.wrist))
                 - (y(Self.indexMcp) - y(Self.wrist)) * (x(Self.pinkyMcp) - x(Self.wrist))
         ) * 0.5
-        guard palmArea >= 0.0015 else { return false }
+        guard palmArea >= 0.0008 else { return false }
 
-        for i in 0..<4 where distance(Self.tips[i], Self.pips[i]) < 0.015 {
+        for i in 0..<4 where distance(Self.tips[i], Self.pips[i]) < 0.010 {
             return false
         }
         return true
@@ -155,8 +155,8 @@ struct HandFrame {
 
 /// Single-frame classifier for the core vocabulary.
 final class PostureClassifier {
-    static let staticThreshold: Float = 0.80
-    static let mutexMargin: Float = 0.12
+    static let staticThreshold: Float = 0.68
+    static let mutexMargin: Float = 0.08
 
     func classify(_ frame: HandFrame) -> GestureCandidate {
         guard frame.isPlausible else { return .none }
@@ -212,14 +212,14 @@ final class PostureClassifier {
 
 /// Confidence + several consecutive frames + duration + mutual exclusion.
 final class GestureStateMachine {
-    static let sosConfidenceThreshold: Float = 0.92
+    static let sosConfidenceThreshold: Float = 0.86
     static let sosHoldMs: Int64 = 5_000
     static let sosMinFrames = 20
     static let sosArmWindowMs: Int64 = 15_000
     static let noneResetMs: Int64 = 2_000
 
-    private let staticMinFrames = 5
-    private let staticStableMs: Int64 = 700
+    private let staticMinFrames = 4
+    private let staticStableMs: Int64 = 500
 
     private var candidateID: GestureID?
     private var candidateSince: Int64 = 0
@@ -368,6 +368,11 @@ final class GestureEngine {
         let frame = HandFrame(hands)
         let candidate = frame.isPlausible ? classifier.classify(frame) : GestureCandidate.none
         return state.update(candidate, at: nowMs)
+    }
+
+    func candidate(_ hands: [[CGPoint]]) -> GestureCandidate {
+        let frame = HandFrame(hands)
+        return frame.isPlausible ? classifier.classify(frame) : GestureCandidate.none
     }
 
     func reset() {
