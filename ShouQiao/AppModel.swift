@@ -12,18 +12,27 @@ final class AppModel: ObservableObject {
     @Published var showHelp = false
     @Published var performanceText = "分析 0.0 帧/秒 · 处理 0.0 毫秒"
     @Published var debugText = "手 0 · — 0.00"
+    @Published var wordCandidates: [WordCandidate] = []
+    @Published var wordStatus = "词语识别未开始"
+    @Published var showWordCandidates = false
 
     let camera = CameraManager()
     let handService = HandLandmarkerService()
+    let poseService = PoseLandmarkerService()
     let location = SosLocationController()
 
     private let engine = GestureEngine()
+    private let wordEngine = WordTemplateEngine()
     private let speech = SpeechController()
     private let ocr = SceneTextRecognizer()
     private var cancellables = Set<AnyCancellable>()
     private var analysisFrames = 0
     private var lastMetricAt = CFAbsoluteTimeGetCurrent()
     private var lastProcessingMs = 0.0
+    private let recordingLock = NSLock()
+    private var recordingActive = false
+    private var recordedFeatures: [[Float]] = []
+    private var wordTimer: DispatchWorkItem?
 
     init() {
         handService.onHands = { [weak self] hands, capturedAt in
@@ -33,11 +42,21 @@ final class AppModel: ObservableObject {
         }
 
         let service = handService
-        camera.onSampleBuffer = { sampleBuffer in
+        let poseService = poseService
+        let recordingLock = recordingLock
+        camera.onSampleBuffer = { [weak self] sampleBuffer in
+            guard let self else { return }
+            let timestamp = Int(Date().timeIntervalSince1970 * 1000)
             service.process(
                 sampleBuffer,
-                timestampMs: Int(Date().timeIntervalSince1970 * 1000)
+                timestampMs: timestamp
             )
+            recordingLock.lock()
+            let recording = self.recordingActive
+            recordingLock.unlock()
+            if recording {
+                poseService.process(sampleBuffer, timestampMs: timestamp)
+            }
         }
 
         location.$status
@@ -72,6 +91,14 @@ final class AppModel: ObservableObject {
                 self?.cameraMessage = error
             }
             .store(in: &cancellables)
+
+        poseService.$lastError
+            .receive(on: RunLoop.main)
+            .compactMap { $0 }
+            .sink { [weak self] error in
+                self?.wordStatus = "姿态模型：\(error)"
+            }
+            .store(in: &cancellables)
     }
 
     func start() {
@@ -82,6 +109,7 @@ final class AppModel: ObservableObject {
         camera.stop()
         location.cancel()
         speech.stop()
+        cancelWordRecording()
     }
 
     func resetGesture() {
@@ -92,6 +120,42 @@ final class AppModel: ObservableObject {
 
     func startSosLocation() {
         location.start()
+    }
+
+    func startWordRecording() {
+        guard wordEngine.loadError == nil else {
+            wordStatus = wordEngine.loadError ?? "词库不可用"
+            showWordCandidates = true
+            return
+        }
+        recordingLock.lock()
+        recordingActive = true
+        recordingLock.unlock()
+        recordedFeatures.removeAll()
+        wordCandidates = []
+        wordStatus = "请做完整词语动作，约 3 秒（需要双手和上半身入镜）"
+        showWordCandidates = true
+        wordTimer?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.finishWordRecording()
+        }
+        wordTimer = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0, execute: work)
+    }
+
+    func cancelWordRecording() {
+        recordingLock.lock()
+        recordingActive = false
+        recordingLock.unlock()
+        wordTimer?.cancel()
+        wordTimer = nil
+        recordedFeatures.removeAll()
+    }
+
+    func chooseWord(_ candidate: WordCandidate) {
+        phrase = candidate.label
+        speech.speak(candidate.label)
+        showWordCandidates = false
     }
 
     func recognizeSceneText() {
@@ -140,6 +204,15 @@ final class AppModel: ObservableObject {
             }
         }
 
+        recordingLock.lock()
+        let recording = recordingActive
+        recordingLock.unlock()
+        if recording, !hands.isEmpty, let pose = poseService.latestLandmarks,
+           let feature = WordFeatureEncoder.encode(hands: hands, pose: pose) {
+            recordedFeatures.append(feature)
+            wordStatus = "正在采集动作… \(recordedFeatures.count) 帧"
+        }
+
         lastProcessingMs = max(0, Double(Int(Date().timeIntervalSince1970 * 1000) - capturedAt))
         analysisFrames += 1
         let elapsed = CFAbsoluteTimeGetCurrent() - lastMetricAt
@@ -152,6 +225,30 @@ final class AppModel: ObservableObject {
             )
             analysisFrames = 0
             lastMetricAt = CFAbsoluteTimeGetCurrent()
+        }
+    }
+
+    private func finishWordRecording() {
+        recordingLock.lock()
+        recordingActive = false
+        recordingLock.unlock()
+        wordTimer = nil
+        let frames = recordedFeatures
+        recordedFeatures.removeAll()
+        guard frames.count >= 3 else {
+            wordStatus = "没有采集到足够的双手/上半身动作，请靠近摄像头重试"
+            return
+        }
+        wordStatus = "正在匹配词库…"
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let matches = self?.wordEngine.match(frames) ?? []
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.wordCandidates = matches
+                self.wordStatus = matches.isEmpty
+                    ? "没有找到匹配词，请重试"
+                    : "请从候选词中选择实际表达"
+            }
         }
     }
 }
