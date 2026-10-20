@@ -1,4 +1,5 @@
 import Combine
+import CoreMedia
 import Foundation
 import MediaPipeTasksVision
 import UIKit
@@ -7,27 +8,42 @@ import UIKit
 final class HandLandmarkerService: NSObject, ObservableObject {
     @Published private(set) var lastError: String?
 
-    var onHands: (([[CGPoint]]) -> Void)?
+    var onHands: (([[CGPoint]], Int) -> Void)?
 
     private var handLandmarker: HandLandmarker?
     private var lastTimestampMs = 0
+    private let processingQueue = DispatchQueue(
+        label: "org.signbridge.hand-landmarker",
+        qos: .userInitiated
+    )
 
     override init() {
         super.init()
         configure()
     }
 
-    func process(_ image: UIImage, timestampMs: Int) {
+    func process(_ sampleBuffer: CMSampleBuffer, timestampMs: Int) {
         guard let handLandmarker else { return }
         let timestamp = max(timestampMs, lastTimestampMs + 1)
         lastTimestampMs = timestamp
 
         do {
-            let mpImage = try MPImage(uiImage: image)
-            try handLandmarker.detectAsync(
-                image: mpImage,
-                timestampInMilliseconds: timestamp
-            )
+            // Build MPImage while the camera sample buffer is still valid.
+            let mpImage = try MPImage(sampleBuffer: sampleBuffer)
+            processingQueue.async {
+                autoreleasepool {
+                    do {
+                        try handLandmarker.detectAsync(
+                            image: mpImage,
+                            timestampInMilliseconds: timestamp
+                        )
+                    } catch {
+                        DispatchQueue.main.async {
+                            self.lastError = error.localizedDescription
+                        }
+                    }
+                }
+            }
         } catch {
             DispatchQueue.main.async {
                 self.lastError = error.localizedDescription
@@ -82,7 +98,7 @@ extension HandLandmarkerService: HandLandmarkerLiveStreamDelegate {
             }
         }
         DispatchQueue.main.async {
-            self.onHands?(hands)
+            self.onHands?(hands, timestampInMilliseconds)
         }
     }
 }
