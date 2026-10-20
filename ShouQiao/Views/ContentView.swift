@@ -103,6 +103,15 @@ private struct GestureView: View {
                             .buttonStyle(.borderedProminent)
                             .tint(.red)
                         }
+
+                        Button {
+                            model.startWordRecording()
+                        } label: {
+                            Label("识别词语（22 词）", systemImage: "text.bubble.fill")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.teal)
                     }
                     .padding(18)
                     .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 22))
@@ -121,7 +130,61 @@ private struct GestureView: View {
                         }
                 }
             }
+            .sheet(isPresented: $model.showWordCandidates) {
+                NavigationStack {
+                    WordCandidateView(model: model)
+                        .toolbar {
+                            ToolbarItem(placement: .topBarTrailing) {
+                                Button("关闭") {
+                                    model.cancelWordRecording()
+                                    model.showWordCandidates = false
+                                }
+                            }
+                        }
+                }
+            }
         }
+    }
+}
+
+private struct WordCandidateView: View {
+    @ObservedObject var model: AppModel
+
+    var body: some View {
+        List {
+            Section {
+                Text(model.wordStatus)
+                    .foregroundStyle(.secondary)
+            }
+
+            if !model.wordCandidates.isEmpty {
+                Section("候选词") {
+                    ForEach(model.wordCandidates) { candidate in
+                        Button {
+                            model.chooseWord(candidate)
+                        } label: {
+                            HStack {
+                                Text(candidate.label)
+                                    .font(.title3.bold())
+                                Spacer()
+                                Text(String(format: "%.3f", candidate.distance))
+                                    .font(.caption.monospaced())
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+            } else {
+                Section {
+                    Button {
+                        model.startWordRecording()
+                    } label: {
+                        Label("重新采集 3 秒", systemImage: "arrow.clockwise")
+                    }
+                }
+            }
+        }
+        .navigationTitle("词语识别")
     }
 }
 
