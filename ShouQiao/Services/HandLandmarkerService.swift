@@ -23,7 +23,7 @@ final class HandLandmarkerService: NSObject, ObservableObject {
         lastTimestampMs = timestamp
 
         do {
-            let mpImage = try MPImage(image: image)
+            let mpImage = try MPImage(uiImage: image)
             try handLandmarker.detectAsync(
                 image: mpImage,
                 timestampInMilliseconds: timestamp
@@ -64,7 +64,7 @@ final class HandLandmarkerService: NSObject, ObservableObject {
 extension HandLandmarkerService: HandLandmarkerLiveStreamDelegate {
     func handLandmarker(
         _ handLandmarker: HandLandmarker,
-        didFinishDetectionWithResult result: HandLandmarkerResult?,
+        didFinishDetection result: HandLandmarkerResult?,
         timestampInMilliseconds: Int,
         error: Error?
     ) {
