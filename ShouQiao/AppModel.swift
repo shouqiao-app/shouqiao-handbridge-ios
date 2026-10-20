@@ -10,6 +10,7 @@ final class AppModel: ObservableObject {
     @Published var ocrText = "等待识别"
     @Published var cameraMessage = ""
     @Published var showHelp = false
+    @Published var performanceText = "分析 0.0 帧/秒 · 处理 0.0 毫秒"
 
     let camera = CameraManager()
     let handService = HandLandmarkerService()
@@ -18,24 +19,24 @@ final class AppModel: ObservableObject {
     private let engine = GestureEngine()
     private let speech = SpeechController()
     private let ocr = SceneTextRecognizer()
-    private var latestImage: UIImage?
     private var cancellables = Set<AnyCancellable>()
+    private var analysisFrames = 0
+    private var lastMetricAt = CFAbsoluteTimeGetCurrent()
+    private var lastProcessingMs = 0.0
 
     init() {
-        handService.onHands = { [weak self] hands in
+        handService.onHands = { [weak self] hands, capturedAt in
             DispatchQueue.main.async {
-                self?.handle(hands)
+                self?.handle(hands, capturedAt: capturedAt)
             }
         }
 
-        camera.onImage = { [weak self] image in
-            DispatchQueue.main.async {
-                self?.latestImage = image
-                self?.handService.process(
-                    image,
-                    timestampMs: Int(Date().timeIntervalSince1970 * 1000)
-                )
-            }
+        let service = handService
+        camera.onSampleBuffer = { sampleBuffer in
+            service.process(
+                sampleBuffer,
+                timestampMs: Int(Date().timeIntervalSince1970 * 1000)
+            )
         }
 
         location.$status
@@ -93,7 +94,7 @@ final class AppModel: ObservableObject {
     }
 
     func recognizeSceneText() {
-        guard let latestImage else {
+        guard let latestImage = camera.snapshotImage() else {
             ocrText = "还没有可识别的画面"
             return
         }
@@ -110,22 +111,39 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func handle(_ hands: [[CGPoint]]) {
+    private func handle(_ hands: [[CGPoint]], capturedAt: Int) {
         let now = Int64(Date().timeIntervalSince1970 * 1000)
         let label = engine.posture(hands)
-        posture = label.isEmpty ? "未识别" : label
+        let nextPosture = label.isEmpty ? "未识别" : label
+        if nextPosture != posture {
+            posture = nextPosture
+        }
 
         let event = engine.update(hands, at: now)
-        guard !event.isEmpty else { return }
+        if !event.isEmpty {
+            if event == GestureEngine.sos {
+                phrase = "检测到紧急求助"
+                showHelp = true
+                helpText = "位置：正在获取，最多等待 8 秒…"
+                location.start()
+            } else {
+                phrase = event
+                speech.speak(event)
+            }
+        }
 
-        if event == GestureEngine.sos {
-            phrase = "检测到紧急求助"
-            showHelp = true
-            helpText = "位置：正在获取，最多等待 8 秒…"
-            location.start()
-        } else {
-            phrase = event
-            speech.speak(event)
+        lastProcessingMs = max(0, Double(Int(Date().timeIntervalSince1970 * 1000) - capturedAt))
+        analysisFrames += 1
+        let elapsed = CFAbsoluteTimeGetCurrent() - lastMetricAt
+        if elapsed >= 1.0 {
+            let fps = Double(analysisFrames) / elapsed
+            performanceText = String(
+                format: "分析 %.1f 帧/秒 · 端到端 %.1f 毫秒",
+                fps,
+                lastProcessingMs
+            )
+            analysisFrames = 0
+            lastMetricAt = CFAbsoluteTimeGetCurrent()
         }
     }
 }
