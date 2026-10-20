@@ -62,9 +62,9 @@ final class PoseLandmarkerService: NSObject, ObservableObject {
         options.baseOptions.modelAssetPath = path
         options.runningMode = .liveStream
         options.numPoses = 1
-        options.minPoseDetectionConfidence = 0.5
-        options.minPosePresenceConfidence = 0.5
-        options.minTrackingConfidence = 0.5
+        options.minPoseDetectionConfidence = 0.3
+        options.minPosePresenceConfidence = 0.3
+        options.minTrackingConfidence = 0.3
         options.poseLandmarkerLiveStreamDelegate = self
 
         do {
