@@ -76,6 +76,10 @@ private struct GestureView: View {
                                 .foregroundStyle(.orange)
                         }
 
+                        Text(model.performanceText)
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.white.opacity(0.7))
+
                         HStack(spacing: 10) {
                             Button {
                                 model.resetGesture()
