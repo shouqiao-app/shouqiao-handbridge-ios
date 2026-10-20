@@ -64,7 +64,9 @@ final class CameraManager: NSObject, ObservableObject {
         if configured { return true }
 
         session.beginConfiguration()
-        if session.canSetSessionPreset(.vga640x480) {
+        if session.canSetSessionPreset(.hd1280x720) {
+            session.sessionPreset = .hd1280x720
+        } else if session.canSetSessionPreset(.vga640x480) {
             session.sessionPreset = .vga640x480
         } else {
             session.sessionPreset = .medium
