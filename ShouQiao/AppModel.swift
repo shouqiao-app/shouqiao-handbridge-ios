@@ -11,6 +11,7 @@ final class AppModel: ObservableObject {
     @Published var cameraMessage = ""
     @Published var showHelp = false
     @Published var performanceText = "分析 0.0 帧/秒 · 处理 0.0 毫秒"
+    @Published var debugText = "手 0 · — 0.00"
 
     let camera = CameraManager()
     let handService = HandLandmarkerService()
@@ -113,6 +114,13 @@ final class AppModel: ObservableObject {
 
     private func handle(_ hands: [[CGPoint]], capturedAt: Int) {
         let now = Int64(Date().timeIntervalSince1970 * 1000)
+        let candidate = engine.candidate(hands)
+        debugText = String(
+            format: "手 %d · %@ %.2f",
+            hands.count,
+            candidate.id?.rawValue ?? "—",
+            candidate.confidence
+        )
         let label = engine.posture(hands)
         let nextPosture = label.isEmpty ? "未识别" : label
         if nextPosture != posture {
