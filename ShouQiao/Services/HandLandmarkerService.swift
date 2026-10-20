@@ -64,9 +64,9 @@ final class HandLandmarkerService: NSObject, ObservableObject {
         options.baseOptions.modelAssetPath = modelPath
         options.runningMode = .liveStream
         options.numHands = 2
-        options.minHandDetectionConfidence = 0.6
-        options.minHandPresenceConfidence = 0.6
-        options.minTrackingConfidence = 0.6
+        options.minHandDetectionConfidence = 0.4
+        options.minHandPresenceConfidence = 0.4
+        options.minTrackingConfidence = 0.4
         options.handLandmarkerLiveStreamDelegate = self
 
         do {
