@@ -2,6 +2,8 @@ import Foundation
 import CoreGraphics
 
 enum GestureID: String {
+    case singleOpen = "SINGLE_OPEN"
+    case singleFist = "SINGLE_FIST"
     case bothOpen = "BOTH_OPEN"
     case bothFist = "BOTH_FIST"
     case thumbsUp = "THUMBS_UP"
@@ -172,6 +174,8 @@ final class PostureClassifier {
     func postureLabel(_ frame: HandFrame) -> String {
         guard let id = classify(frame).id else { return "" }
         switch id {
+        case .singleOpen: return "单掌张开"
+        case .singleFist: return "单手握拳"
         case .bothOpen: return "双掌张开"
         case .bothFist: return "双拳"
         case .thumbsUp: return "竖拇指"
@@ -180,9 +184,18 @@ final class PostureClassifier {
     }
 
     private func classifySingle(_ hand: Hand) -> GestureCandidate {
-        let confidence = min(hand.fingerFoldConfidence, hand.thumbUpConfidence)
-        guard confidence >= Self.staticThreshold else { return .none }
-        return GestureCandidate(id: .thumbsUp, confidence: confidence)
+        let candidates: [(GestureID, Float)] = [
+            (.singleOpen, hand.openConfidence),
+            (.singleFist, hand.fistConfidence),
+            (.thumbsUp, min(hand.fingerFoldConfidence, hand.thumbUpConfidence))
+        ].sorted { $0.1 > $1.1 }
+        guard let best = candidates.first else { return .none }
+        let second = candidates.dropFirst().first?.1 ?? 0
+        guard best.1 >= Self.staticThreshold,
+              best.1 - second >= Self.mutexMargin else {
+            return .none
+        }
+        return GestureCandidate(id: best.0, confidence: best.1)
     }
 
     private func classifyTwo(_ first: Hand, _ second: Hand) -> GestureCandidate {
@@ -263,6 +276,22 @@ final class GestureStateMachine {
             && now - candidateSince >= staticStableMs
 
         switch id {
+        case .singleOpen:
+            sosArmed = false
+            if stable && emittedFor != id {
+                emittedFor = id
+                return emit(GestureEngine.singleHello, cooldown: 2_000, now: now)
+            }
+            return ""
+
+        case .singleFist:
+            sosArmed = false
+            if stable && emittedFor != id {
+                emittedFor = id
+                return emit(GestureEngine.singleWait, cooldown: 1_500, now: now)
+            }
+            return ""
+
         case .bothOpen:
             if stable {
                 sosArmed = true
@@ -356,6 +385,8 @@ final class GestureEngine {
     static let hello = "你好，我想和你交流。"
     static let wait = "好的，请稍等。"
     static let understood = "我明白了，谢谢。"
+    static let singleHello = "你好，我在这里。"
+    static let singleWait = "请稍等。"
 
     private let classifier = PostureClassifier()
     private let state = GestureStateMachine()
