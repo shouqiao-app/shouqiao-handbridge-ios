@@ -25,7 +25,7 @@ final class WordTemplateEngine {
         return values
     }()
 
-    private(set) var templates: [Template] = []
+    private var templates: [Template] = []
     private(set) var loadError: String?
 
     init() {
