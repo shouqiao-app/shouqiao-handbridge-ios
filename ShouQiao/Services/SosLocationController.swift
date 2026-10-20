@@ -19,6 +19,8 @@ final class SosLocationController: NSObject, ObservableObject {
     private let geocoder = CLGeocoder()
     private var fallbackWork: DispatchWorkItem?
     private var timeoutWork: DispatchWorkItem?
+    private var bestLocation: CLLocation?
+    private var bestAccuracy: CLLocationAccuracy = .greatestFiniteMagnitude
 
     override init() {
         super.init()
@@ -53,6 +55,8 @@ final class SosLocationController: NSObject, ObservableObject {
         manager.stopUpdatingLocation()
         geocoder.cancelGeocode()
         isLocating = false
+        bestLocation = nil
+        bestAccuracy = .greatestFiniteMagnitude
     }
 
     func retry() {
@@ -61,23 +65,33 @@ final class SosLocationController: NSObject, ObservableObject {
 
     private func beginRequest() {
         isLocating = true
+        bestLocation = nil
+        bestAccuracy = .greatestFiniteMagnitude
         status = "位置：正在优先获取 GPS，最多等待 8 秒…"
         manager.desiredAccuracy = kCLLocationAccuracyBest
         manager.startUpdatingLocation()
 
         let fallback = DispatchWorkItem { [weak self] in
             guard let self, self.isLocating else { return }
+            guard self.bestLocation == nil else {
+                self.status = "位置：已获取坐标，继续等待更精确结果…"
+                return
+            }
             self.status = "位置：GPS 暂不可用，正在尝试网络定位…"
             self.manager.stopUpdatingLocation()
             self.manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
             self.manager.startUpdatingLocation()
         }
         fallbackWork = fallback
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5, execute: fallback)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4.0, execute: fallback)
 
         let timeout = DispatchWorkItem { [weak self] in
             guard let self, self.isLocating else { return }
-            self.fail("位置：8 秒内未获取，可先发送不带位置的求助。")
+            if let best = self.bestLocation {
+                self.finish(with: best)
+            } else {
+                self.fail("位置：8 秒内未获取，可先发送不带位置的求助。")
+            }
         }
         timeoutWork = timeout
         DispatchQueue.main.asyncAfter(deadline: .now() + 8.0, execute: timeout)
@@ -116,6 +130,8 @@ final class SosLocationController: NSObject, ObservableObject {
         status = text
         message = Self.buildMessage(location: nil, address: nil, failure: text)
         onMessage?(message)
+        bestLocation = nil
+        bestAccuracy = .greatestFiniteMagnitude
     }
 
     private static func formatAddress(_ placemark: CLPlacemark?) -> String {
@@ -178,11 +194,25 @@ extension SosLocationController: CLLocationManagerDelegate {
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-        guard let location = locations.last,
-              location.horizontalAccuracy >= 0 else {
-            return
+        for location in locations {
+            guard location.horizontalAccuracy >= 0,
+                  abs(location.timestamp.timeIntervalSinceNow) <= 30 else {
+                continue
+            }
+            if location.horizontalAccuracy < bestAccuracy {
+                bestAccuracy = location.horizontalAccuracy
+                bestLocation = location
+            }
         }
-        finish(with: location)
+        guard let best = bestLocation else { return }
+        if best.horizontalAccuracy <= 15 {
+            finish(with: best)
+        } else {
+            status = String(
+                format: "位置：已获取坐标，当前约 %.0f 米精度，正在继续优化…",
+                best.horizontalAccuracy
+            )
+        }
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
