@@ -9,13 +9,19 @@ final class CameraManager: NSObject, ObservableObject {
     @Published private(set) var isRunning = false
     @Published private(set) var permissionDenied = false
 
-    var onImage: ((UIImage) -> Void)?
+    var onSampleBuffer: ((CMSampleBuffer) -> Void)?
+
+    func snapshotImage() -> UIImage? {
+        latestSnapshot
+    }
 
     private let sessionQueue = DispatchQueue(label: "org.signbridge.camera.session")
     private let videoQueue = DispatchQueue(label: "org.signbridge.camera.video")
     private let context = CIContext()
     private var configured = false
     private var lastFrameAt = CFAbsoluteTimeGetCurrent()
+    private var lastSnapshotAt = 0.0
+    private var latestSnapshot: UIImage?
 
     func start() {
         switch AVCaptureDevice.authorizationStatus(for: .video) {
@@ -58,7 +64,11 @@ final class CameraManager: NSObject, ObservableObject {
         if configured { return true }
 
         session.beginConfiguration()
-        session.sessionPreset = .high
+        if session.canSetSessionPreset(.vga640x480) {
+            session.sessionPreset = .vga640x480
+        } else {
+            session.sessionPreset = .medium
+        }
         defer { session.commitConfiguration() }
 
         guard let device = AVCaptureDevice.default(
@@ -104,15 +114,27 @@ extension CameraManager: AVCaptureVideoDataOutputSampleBufferDelegate {
         from connection: AVCaptureConnection
     ) {
         let now = CFAbsoluteTimeGetCurrent()
-        guard now - lastFrameAt >= 0.13 else { return }
+        guard now - lastFrameAt >= 0.14 else { return }
         lastFrameAt = now
 
-        guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
-        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
-        guard let cgImage = context.createCGImage(ciImage, from: ciImage.extent) else { return }
-        let image = UIImage(cgImage: cgImage, scale: 1, orientation: .up)
-        DispatchQueue.main.async {
-            self.onImage?(image)
+        autoreleasepool {
+            // HandLandmarker consumes the sample buffer directly. No per-frame
+            // RGBA/CGImage/UIImage allocation is needed.
+            onSampleBuffer?(sampleBuffer)
+
+            // OCR only needs an occasional still frame; keep the normal path
+            // free of image conversion.
+            if now - lastSnapshotAt >= 1.0,
+               let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) {
+                lastSnapshotAt = now
+                let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+                if let cgImage = context.createCGImage(ciImage, from: ciImage.extent) {
+                    let image = UIImage(cgImage: cgImage, scale: 1, orientation: .up)
+                    DispatchQueue.main.async { [weak self] in
+                        self?.latestSnapshot = image
+                    }
+                }
+            }
         }
     }
 }
