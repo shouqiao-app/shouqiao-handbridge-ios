@@ -20,9 +20,6 @@ targets:
       - path: ShouQiao
         excludes:
           - Info.plist
-          - Resources
-    resources:
-      - path: ShouQiao/Resources
     info:
       path: ShouQiao/Info.plist
     settings:
