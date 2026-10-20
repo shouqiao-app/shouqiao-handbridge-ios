@@ -15,11 +15,16 @@ final class AppModel: ObservableObject {
     @Published var wordCandidates: [WordCandidate] = []
     @Published var wordStatus = "词语识别未开始"
     @Published var showWordCandidates = false
+    @Published var latestHands: [[CGPoint]] = []
 
     let camera = CameraManager()
     let handService = HandLandmarkerService()
     let poseService = PoseLandmarkerService()
     let location = SosLocationController()
+    let speechRecognizer = SpeechRecognizer()
+
+    var wordCount: Int { wordEngine.labels.count }
+    var wordLoadError: String? { wordEngine.loadError }
 
     private let engine = GestureEngine()
     private let wordEngine = WordTemplateEngine()
@@ -122,6 +127,10 @@ final class AppModel: ObservableObject {
         location.start()
     }
 
+    func speakText(_ text: String) {
+        speech.speak(text)
+    }
+
     func startWordRecording() {
         guard wordEngine.loadError == nil else {
             wordStatus = wordEngine.loadError ?? "词库不可用"
@@ -178,6 +187,7 @@ final class AppModel: ObservableObject {
 
     private func handle(_ hands: [[CGPoint]], capturedAt: Int) {
         let now = Int64(Date().timeIntervalSince1970 * 1000)
+        latestHands = hands
         let candidate = engine.candidate(hands)
         debugText = String(
             format: "手 %d · %@ %.2f",
