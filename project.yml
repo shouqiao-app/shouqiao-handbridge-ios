@@ -20,10 +20,10 @@ targets:
       - path: ShouQiao
         excludes:
           - Info.plist
-    info:
-      path: ShouQiao/Info.plist
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: org.signbridge.app
+        INFOPLIST_FILE: ShouQiao/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
     scheme:
       testTargets: []
